@@ -1,11 +1,117 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <title>Progate</title>
-    <link rel="stylesheet" href="stylesheet.css">
-  </head>
-  <body>
-    <h1>Hello, World!</h1>
-  </body>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>運転手拘束時間管理(1日用)</title>
+  <style>
+    body { font-family: "Inter", sans-serif; background: #f3f4f6; margin: 0; padding: 20px; }
+    .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    h1 { font-size: 24px; text-align: center; margin-bottom: 20px; }
+    label { display: block; margin-bottom: 6px; font-weight: 600; color: #374151; }
+    input[type="time"] { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; margin-bottom: 16px; }
+    .result { background: #f9fafb; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
+    .result h2 { margin: 0 0 8px; font-size: 18px; }
+    .alert { background: #fee2e2; border: 1px solid #f87171; color: #b91c1c; padding: 12px; border-radius: 6px; white-space: pre-line; }
+    .blue { color: #1d4ed8; font-weight: 600; }
+    .red { color: #b91c1c; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>運転手拘束時間管理(1日用)</h1>
+
+    <label for="startTime">始業時間 (HH:mm)</label>
+    <input type="time" id="startTime" value="05:40" />
+
+    <label for="endTime">終了時間 (HH:mm)</label>
+    <input type="time" id="endTime" value="17:30" />
+
+    <label for="nextDayStartTime">翌日の出勤時間 (HH:mm)</label>
+    <input type="time" id="nextDayStartTime" value="02:10" />
+
+    <div class="result">
+      <h2>計算結果</h2>
+      <p id="constraintHours">拘束時間: -- 時間</p>
+    </div>
+
+    <div id="warningMessage" class="alert" style="display:none;"></div>
+  </div>
+
+  <script>
+    const startInput = document.getElementById("startTime");
+    const endInput = document.getElementById("endTime");
+    const nextDayInput = document.getElementById("nextDayStartTime");
+    const resultEl = document.getElementById("constraintHours");
+    const warningEl = document.getElementById("warningMessage");
+
+    function calculateTimes() {
+      const startTime = startInput.value;
+      const endTime = endInput.value;
+      const nextDayStartTime = nextDayInput.value;
+
+      const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      if (!timeRegex.test(startTime) || !timeRegex.test(endTime) || !timeRegex.test(nextDayStartTime)) {
+        warningEl.style.display = "block";
+        warningEl.textContent = "有効な時間を入力してください (例: 08:00)";
+        resultEl.textContent = "拘束時間: -- 時間";
+        return;
+      }
+
+      const today = new Date();
+      today.setHours(0,0,0,0);
+
+      const [startHour, startMinute] = startTime.split(":").map(Number);
+      const startDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), startHour, startMinute);
+
+      const [endHour, endMinute] = endTime.split(":").map(Number);
+      let endDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), endHour, endMinute);
+      if (endDateTime < startDateTime) endDateTime.setDate(endDateTime.getDate() + 1);
+
+      const shiftConstraintMillis = endDateTime - startDateTime;
+      const calculatedShiftConstraintHours = shiftConstraintMillis / (1000*60*60);
+
+      const [nextStartHour, nextStartMinute] = nextDayStartTime.split(":").map(Number);
+      let nextDayStartDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, nextStartHour, nextStartMinute);
+      if (nextDayStartDateTime < endDateTime) nextDayStartDateTime.setDate(nextDayStartDateTime.getDate() + 1);
+
+      let effectiveConstraintHours = calculatedShiftConstraintHours;
+      let doubleCountedHours = 0;
+
+      const periodEnd24h = new Date(startDateTime.getTime() + 24*60*60*1000);
+      if (nextDayStartDateTime < periodEnd24h) {
+        const doubleCountedMillis = periodEnd24h - nextDayStartDateTime;
+        doubleCountedHours = doubleCountedMillis / (1000*60*60);
+        effectiveConstraintHours += doubleCountedHours;
+      }
+
+      // 結果の表示
+      resultEl.innerHTML = `拘束時間: <span class="${effectiveConstraintHours > 15 ? "red" : "blue"}">${effectiveConstraintHours.toFixed(2)}</span> 時間`;
+
+      // 警告メッセージ
+      let messages = [];
+      if (doubleCountedHours > 0) {
+        messages.push(`警告: 始業から24時間以内に翌日の出勤が発生しています。\nこのため、翌日${nextDayStartTime} から 翌日${periodEnd24h.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})} までの ${doubleCountedHours.toFixed(2)} 時間が拘束時間として加算されています。`);
+      }
+      if (effectiveConstraintHours > 15) {
+        messages.push(`警告: 総拘束時間（${effectiveConstraintHours.toFixed(2)} 時間）が15時間を超えています！`);
+      }
+
+      if (messages.length > 0) {
+        warningEl.style.display = "block";
+        warningEl.textContent = messages.join("\n");
+      } else {
+        warningEl.style.display = "none";
+      }
+    }
+
+    // 初回計算
+    calculateTimes();
+
+    // 入力が変わったら再計算
+    [startInput, endInput, nextDayInput].forEach(el => {
+      el.addEventListener("input", calculateTimes);
+    });
+  </script>
+</body>
 </html>
